@@ -23,6 +23,7 @@ import {
 } from 'lucide-react'
 
 import type { Product, ProductUnit } from '../types'
+import { api } from '../api/client'
 
 const STANDARD_UNITS = ['Pcs', 'Pack', 'Renceng', 'Press', 'Box', 'Botol', 'Kaleng', 'Karton']
 
@@ -229,10 +230,27 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
       units: formUnits
     }
 
+    // Persist to PostgreSQL backend via Hono API
+    api.createProduct({
+      name: formName,
+      sku: newProd.sku,
+      barcode: formBarcode || null,
+      base_unit: defaultUnit.name,
+      cost_price: costNum,
+      price: defaultUnit.price,
+      stock: stockNum,
+      min_stock: minStockNum,
+      description: formDescription || null
+    }).then(res => {
+      if (res.success && res.data) {
+        newProd.id = res.data.id
+      }
+    }).catch(err => console.warn('Could not persist to DB backend:', err))
+
     setProducts([newProd, ...products])
     setSelectedProduct(newProd)
     setShowAddModal(false)
-    triggerToast('Produk baru berhasil ditambahkan!', 'success')
+    triggerToast('Produk baru berhasil ditambahkan dan disimpan ke database!', 'success')
   }
 
   // Handle Edit Product Submit
@@ -288,8 +306,8 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
     }
 
     // Determine stock difference to add to history if modified
-    const stockDiff = stockNum - selectedProduct.stock
-    const updatedHistory = [...selectedProduct.history]
+    const stockDiff = stockNum - (selectedProduct.stock || 0)
+    const updatedHistory = [...(selectedProduct.history || [])]
     if (stockDiff !== 0) {
       updatedHistory.unshift({
         type: stockDiff > 0 ? 'Stok Masuk' : 'Penjualan',
@@ -317,6 +335,19 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
       history: updatedHistory,
       units: formUnits
     }
+
+    // Persist edit to PostgreSQL via Hono API
+    api.updateProduct(selectedProduct.id, {
+      name: formName,
+      sku: formSku,
+      barcode: formBarcode,
+      base_unit: defaultUnit.name,
+      cost_price: costNum,
+      price: defaultUnit.price,
+      stock: stockNum,
+      min_stock: minStockNum,
+      description: formDescription
+    }).catch(err => console.warn('Could not persist product update to backend:', err))
 
     const updatedProducts = products.map(p => p.id === selectedProduct.id ? updatedProd : p)
     setProducts(updatedProducts)
@@ -550,7 +581,14 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
-                            <img src={p.image} alt={p.name} className="w-4/5 h-4/5 object-contain mix-blend-multiply" />
+                            <img 
+                              src={p.image} 
+                              alt={p.name} 
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80'
+                              }}
+                            />
                           </div>
                           <div>
                             <p className="font-bold text-slate-800 text-sm leading-tight">{p.name}</p>

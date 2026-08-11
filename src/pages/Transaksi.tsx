@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 
 import type { Product, ProductUnit } from '../types'
+import { api } from '../api/client'
 
 // Cart Item type
 interface CartItem {
@@ -231,7 +232,30 @@ export default function Transaksi({ products, setProducts, onLogout, onNavigate 
       }
     }
     
-    // Deduct stock globally
+    const receiptNo = `TRX-${Math.floor(100000 + Math.random() * 900000)}`
+    const paymentMap: Record<string, number> = { Tunai: 1, QRIS: 2, Debit: 3, Kredit: 4 }
+
+    // Persist transaction to PostgreSQL via Hono API
+    api.createTransaction({
+      receipt_no: receiptNo,
+      payment_method_id: paymentMap[paymentMethod] || 1,
+      subtotal,
+      discount: activeDiscount,
+      tax_amount: ppn,
+      total,
+      cash_received: parseFloat(cashReceived) || total,
+      change_amount: Math.max(0, (parseFloat(cashReceived) || total) - total),
+      items: cart.map(item => ({
+        product_id: item.product.id,
+        unit_name: item.selectedUnit.name,
+        unit_qty: item.selectedUnit.qty || 1,
+        unit_price: item.selectedUnit.price,
+        quantity: item.quantity,
+        line_total: item.selectedUnit.price * item.quantity
+      }))
+    }).catch(err => console.warn('Could not persist transaction to backend:', err))
+
+    // Deduct stock globally in local React state
     setProducts(prevProducts => {
       return prevProducts.map(p => {
         const cartItemsForProduct = cart.filter(item => item.product.id === p.id)

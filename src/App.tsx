@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   ShoppingBag,
   BarChart3,
@@ -12,6 +12,7 @@ import {
   ArrowRight
 } from 'lucide-react'
 import { Agentation } from 'agentation'
+import { api } from './api/client'
 import posSystem from './assets/pos_system_transparent.png'
 import Dashboard from './pages/Dashboard'
 import Transaksi from './pages/Transaksi'
@@ -208,27 +209,97 @@ const INITIAL_PRODUCTS: Product[] = [
   }
 ]
 
+type PageType = 'dashboard' | 'transaksi' | 'produk' | 'restok' | 'laporan' | 'pengaturan'
+
 export default function App() {
   const [showPassword, setShowPassword] = useState(false)
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [currentPage, setCurrentPage] = useState<'dashboard' | 'transaksi' | 'produk' | 'restok' | 'laporan' | 'pengaturan'>('dashboard')
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => localStorage.getItem('kasirku_is_logged_in') === 'true')
+  
+  const getInitialPage = (): PageType => {
+    const path = window.location.pathname.replace('/', '').toLowerCase()
+    const validPages: PageType[] = ['dashboard', 'transaksi', 'produk', 'restok', 'laporan', 'pengaturan']
+    return validPages.includes(path as PageType) ? (path as PageType) : 'dashboard'
+  }
+
+  const [currentPage, setCurrentPage] = useState<PageType>(getInitialPage)
   const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS)
+  const [emailInput, setEmailInput] = useState('admin@kasir.com')
+  const [passwordInput, setPasswordInput] = useState('admin123')
+  const [loginError, setLoginError] = useState('')
+
+  const handleNavigate = (page: PageType) => {
+    setCurrentPage(page)
+    if (window.location.pathname !== `/${page}`) {
+      window.history.pushState({}, '', `/${page}`)
+    }
+  }
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname.replace('/', '').toLowerCase()
+      const validPages: PageType[] = ['dashboard', 'transaksi', 'produk', 'restok', 'laporan', 'pengaturan']
+      if (validPages.includes(path as PageType)) {
+        setCurrentPage(path as PageType)
+      } else {
+        setCurrentPage('dashboard')
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  const handleLogout = () => {
+    localStorage.removeItem('kasirku_is_logged_in')
+    setIsLoggedIn(false)
+    handleNavigate('dashboard')
+  }
+
+  useEffect(() => {
+    // Fetch products from Hono backend (PostgreSQL)
+    api.getProducts()
+      .then(res => {
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          const mapped: Product[] = res.data.map(p => ({
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            category: p.category_name || 'Umum',
+            price: Number(p.price),
+            costPrice: Number(p.cost_price),
+            stock: p.stock,
+            unit: p.base_unit || 'Pcs',
+            minStock: p.min_stock || 5,
+            barcode: p.barcode || '-',
+            supplier: p.supplier_name || '-',
+            description: p.description || '',
+            status: p.status || 'Aktif',
+            image: p.image_url || 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80',
+            history: [],
+            units: [{ name: p.base_unit || 'Pcs', price: Number(p.price), isDefault: true, qty: 1 }]
+          }))
+          setProducts(mapped)
+        }
+      })
+      .catch(err => {
+        console.warn('Backend not reached, using fallback state:', err)
+      })
+  }, [])
 
   return (
     <>
       {isLoggedIn ? (
         currentPage === 'dashboard' ? (
-          <Dashboard products={products} onNavigate={setCurrentPage} onLogout={() => { setIsLoggedIn(false); setCurrentPage('dashboard'); }} />
+          <Dashboard products={products} onNavigate={handleNavigate} onLogout={handleLogout} />
         ) : currentPage === 'transaksi' ? (
-          <Transaksi products={products} setProducts={setProducts} onNavigate={setCurrentPage} onLogout={() => { setIsLoggedIn(false); setCurrentPage('dashboard'); }} />
+          <Transaksi products={products} setProducts={setProducts} onNavigate={handleNavigate} onLogout={handleLogout} />
         ) : currentPage === 'produk' ? (
-          <Produk products={products} setProducts={setProducts} onNavigate={setCurrentPage} onLogout={() => { setIsLoggedIn(false); setCurrentPage('dashboard'); }} />
+          <Produk products={products} setProducts={setProducts} onNavigate={handleNavigate} onLogout={handleLogout} />
         ) : currentPage === 'restok' ? (
-          <Restok products={products} setProducts={setProducts} onNavigate={setCurrentPage} onLogout={() => { setIsLoggedIn(false); setCurrentPage('dashboard'); }} />
+          <Restok products={products} setProducts={setProducts} onNavigate={handleNavigate} onLogout={handleLogout} />
         ) : currentPage === 'laporan' ? (
-          <Laporan products={products} onNavigate={setCurrentPage} onLogout={() => { setIsLoggedIn(false); setCurrentPage('dashboard'); }} />
+          <Laporan products={products} onNavigate={handleNavigate} onLogout={handleLogout} />
         ) : (
-          <Pengaturan products={products} onNavigate={setCurrentPage} onLogout={() => { setIsLoggedIn(false); setCurrentPage('dashboard'); }} />
+          <Pengaturan products={products} onNavigate={handleNavigate} onLogout={handleLogout} />
         )
       ) : (
         <div className="min-h-screen bg-[#F8FAFC] flex font-sans text-slate-800 relative">
@@ -334,7 +405,29 @@ export default function App() {
                 </p>
               </div>
 
-              <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); setIsLoggedIn(true); }}>
+              <form
+                className="space-y-6"
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  setLoginError('')
+                  try {
+                    const res = await api.login({ email: emailInput, password: passwordInput })
+                    if (res.success) {
+                      localStorage.setItem('kasirku_is_logged_in', 'true')
+                      setIsLoggedIn(true)
+                    } else {
+                      setLoginError(res.message || 'Login gagal, periksa email & password Anda.')
+                    }
+                  } catch (err: any) {
+                    setLoginError(err.message || 'Email atau password salah!')
+                  }
+                }}
+              >
+                {loginError && (
+                  <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-600 text-xs font-bold text-left animate-in fade-in duration-200">
+                    ❌ {loginError}
+                  </div>
+                )}
                 {/* Username Input */}
                 <div className="space-y-2">
                   <label htmlFor="username" className="block text-sm font-semibold text-slate-700 text-left">
@@ -347,6 +440,8 @@ export default function App() {
                     <input
                       type="text"
                       id="username"
+                      value={emailInput}
+                      onChange={e => setEmailInput(e.target.value)}
                       placeholder="Masukkan email atau username"
                       className="block w-full pl-11 pr-4 py-4 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:ring-4 focus:ring-blue-50 focus:border-blue-600 focus:bg-white transition-all outline-none bg-slate-50/50 text-sm"
                     />
@@ -365,6 +460,8 @@ export default function App() {
                     <input
                       type={showPassword ? "text" : "password"}
                       id="password"
+                      value={passwordInput}
+                      onChange={e => setPasswordInput(e.target.value)}
                       placeholder="Masukkan password"
                       className="block w-full pl-11 pr-12 py-4 border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 focus:ring-4 focus:ring-blue-50 focus:border-blue-600 focus:bg-white transition-all outline-none bg-slate-50/50 text-sm"
                     />

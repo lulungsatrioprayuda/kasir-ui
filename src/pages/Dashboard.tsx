@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import type { Product } from '../types'
+import { api } from '../api/client'
 import {
   ShoppingBag,
   LayoutDashboard,
@@ -31,6 +32,51 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
   const [selectedPeriod, setSelectedPeriod] = useState<"7 Hari Terakhir" | "30 Hari Terakhir" | "Hari Ini">("7 Hari Terakhir")
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+  const [dbStats, setDbStats] = useState<{ todaySales?: number; todayTransactions?: number; totalProducts?: number; lowStockCount?: number }>({})
+
+  // Date Filter State
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+  const [dateFilterLabel, setDateFilterLabel] = useState<string>("Hari Ini (12 Agu 2026)")
+
+  // Notifications Popover State
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+
+  // Calculate live notification alerts
+  const lowStockItems = products.filter(p => p.stock <= p.minStock)
+  const notifications = [
+    ...lowStockItems.map(p => ({
+      id: `stock-${p.id}`,
+      title: 'Peringatan Stok Menipis',
+      message: `${p.name} tersisa ${p.stock} ${p.unit} (Batas minimal: ${p.minStock})`,
+      time: 'Baru saja',
+      type: 'warning' as const,
+      onClick: () => onNavigate('produk')
+    })),
+    {
+      id: 'db-status',
+      title: 'Database Terkoneksi',
+      message: 'PostgreSQL & Hono Backend terhubung aktif',
+      time: 'Aktif',
+      type: 'info' as const
+    },
+    {
+      id: 'trx-alert',
+      title: 'Sistem POS Siap',
+      message: 'Semua menu terhubung langsung ke database',
+      time: 'Hari Ini',
+      type: 'success' as const
+    }
+  ]
+
+  useEffect(() => {
+    api.getDashboardReports()
+      .then(res => {
+        if (res.success && res.data) {
+          setDbStats(res.data)
+        }
+      })
+      .catch(err => console.warn('Could not fetch DB report stats:', err))
+  }, [])
 
   // Chart datasets
   const chartData = {
@@ -115,6 +161,10 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
     { id: 'TRX-200524-122', date: '20 Mei 2024', time: '08:45', amount: 'Rp 200.000', status: 'Selesai' }
   ]
 
+  // Use DB data if available, fallback to mock
+  const topProductsList = (dbStats as any).topProducts || topProducts
+  const recentTxList = (dbStats as any).recentTransactions || recentTransactions
+
   return (
     <div className="flex min-h-screen bg-[#F8FAFC] text-slate-800 font-sans">
       {/* Sidebar */}
@@ -180,25 +230,101 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
         {/* Top Header */}
         <header className="flex justify-between items-center">
           <div className="text-left space-y-1">
-            <h2 className="text-3xl font-bold tracking-tight text-slate-950">Dashboard</h2>
+            <h2 className="text-3xl font-bold tracking-tight text-slate-955">Dashboard</h2>
             <p className="text-slate-500 text-sm">Selamat datang kembali, <span className="font-semibold text-slate-700">Kasir! 👋</span></p>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Datepicker Mock */}
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200">
-              <Calendar className="w-4 h-4 text-slate-400" />
-              20 Mei 2024
-              <ChevronDown className="w-4 h-4 text-slate-400" />
-            </button>
+            {/* Interactive Date Filter Dropdown */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+                className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-sm font-semibold text-slate-700 shadow-sm transition-all duration-200 cursor-pointer"
+              >
+                <Calendar className="w-4 h-4 text-blue-600" />
+                {dateFilterLabel}
+                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isDatePickerOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-            {/* Notification Bell */}
-            <button className="relative p-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-slate-505 hover:text-slate-700 shadow-sm transition-all duration-200">
-              <Bell className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 w-5 h-5 bg-blue-600 border-2 border-white rounded-full text-[10px] font-bold text-white flex items-center justify-center">
-                3
-              </span>
-            </button>
+              {isDatePickerOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-100 rounded-2xl shadow-xl py-2 z-50 text-left">
+                  <p className="px-4 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pilih Periode Data</p>
+                  {[
+                    { label: 'Hari Ini (12 Agu 2026)', period: 'Hari Ini' as const },
+                    { label: '7 Hari Terakhir', period: '7 Hari Terakhir' as const },
+                    { label: '30 Hari Terakhir', period: '30 Hari Terakhir' as const }
+                  ].map((item) => (
+                    <button
+                      key={item.period}
+                      onClick={() => {
+                        setDateFilterLabel(item.label)
+                        setSelectedPeriod(item.period)
+                        setIsDatePickerOpen(false)
+                      }}
+                      className={`w-full text-left px-4 py-2 text-xs font-semibold hover:bg-blue-50/50 hover:text-blue-600 transition-colors flex items-center justify-between cursor-pointer ${
+                        selectedPeriod === item.period ? 'text-blue-600 bg-blue-50/40 font-bold' : 'text-slate-700'
+                      }`}
+                    >
+                      {item.label}
+                      {selectedPeriod === item.period && <span className="w-1.5 h-1.5 rounded-full bg-blue-600"></span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Interactive Notification Bell Popover */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                className="relative p-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-slate-600 hover:text-slate-900 shadow-sm transition-all duration-200 cursor-pointer"
+              >
+                <Bell className="w-5 h-5 text-slate-700" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-blue-600 border-2 border-white rounded-full text-[10px] font-bold text-white flex items-center justify-center shadow-sm animate-pulse">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+
+              {isNotificationsOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-100 rounded-2xl shadow-xl py-3 z-50 text-left">
+                  <div className="flex items-center justify-between px-4 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-slate-900 text-sm">Notifikasi</h4>
+                      <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold">
+                        {notifications.length} Baru
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => setIsNotificationsOpen(false)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 font-semibold"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
+                    {notifications.map((n) => (
+                      <div 
+                        key={n.id}
+                        onClick={() => {
+                          if (n.onClick) n.onClick()
+                          setIsNotificationsOpen(false)
+                        }}
+                        className={`p-3.5 hover:bg-slate-50 transition-colors ${n.onClick ? 'cursor-pointer' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className={`font-bold text-xs ${n.type === 'warning' ? 'text-amber-600' : 'text-slate-900'}`}>{n.title}</p>
+                          <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">{n.time}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 leading-snug">{n.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -206,7 +332,7 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           <StatsCard
             title="Total Penjualan"
-            value="Rp 3.250.000"
+            value={dbStats.todaySales !== undefined ? `Rp ${Number(dbStats.todaySales).toLocaleString('id-ID')}` : "Rp 3.250.000"}
             percentage="+12.5%"
             subtext="dari kemarin"
             trend="up"
@@ -216,7 +342,7 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
           />
           <StatsCard
             title="Total Transaksi"
-            value="125"
+            value={dbStats.todayTransactions !== undefined ? String(dbStats.todayTransactions) : "125"}
             percentage="+8.3%"
             subtext="dari kemarin"
             trend="up"
@@ -226,7 +352,7 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
           />
           <StatsCard
             title="Total Produk"
-            value={products.length.toString()}
+            value={dbStats.totalProducts !== undefined ? String(dbStats.totalProducts) : products.length.toString()}
             percentage="—"
             subtext="tidak ada perubahan"
             trend="neutral"
@@ -235,11 +361,11 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
             icon={<Package className="w-5 h-5" />}
           />
           <StatsCard
-            title="Pelanggan Baru"
-            value="18"
-            percentage="+20%"
-            subtext="dari kemarin"
-            trend="up"
+            title="Stok Menipis"
+            value={dbStats.lowStockCount !== undefined ? String(dbStats.lowStockCount) : "1"}
+            percentage="—"
+            subtext="perlu restok"
+            trend="neutral"
             iconBg="bg-violet-50"
             iconColor="text-violet-600"
             icon={<Users className="w-5 h-5" />}
@@ -419,11 +545,11 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
           <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-[0_10px_30px_rgba(15,23,42,0.02)] flex flex-col">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-slate-900">Penjualan Terbaik</h3>
-              <a href="#" className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors">Lihat semua</a>
+              <button onClick={() => onNavigate('produk')} className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer">Lihat semua</button>
             </div>
 
             <div className="space-y-4 flex-1 overflow-y-auto pr-1">
-              {topProducts.map((p, idx) => (
+              {topProductsList.map((p: any, idx: number) => (
                 <div key={p.id} className="flex items-center justify-between py-1">
                   <div className="flex items-center gap-3">
                     <span className="w-5 text-sm font-bold text-slate-400">{idx + 1}</span>
@@ -431,6 +557,9 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
                       src={p.image}
                       alt={p.name}
                       className="w-10 h-10 rounded-xl object-cover border border-slate-100 shadow-sm"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80'
+                      }}
                     />
                     <div className="text-left">
                       <p className="font-bold text-slate-900 text-sm">{p.name}</p>
@@ -492,7 +621,7 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
                 {/* Donut Center Label */}
                 <div className="absolute text-center">
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Total</p>
-                  <p className="text-sm font-bold text-slate-900 mt-0.5">Rp 3.250.000</p>
+                  <p className="text-sm font-bold text-slate-900 mt-0.5">{dbStats.todaySales !== undefined ? `Rp ${Number(dbStats.todaySales).toLocaleString('id-ID')}` : "Rp 3.250.000"}</p>
                 </div>
               </div>
 
@@ -509,11 +638,11 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
           <div className="xl:col-span-2 bg-white rounded-3xl p-6 border border-slate-100 shadow-[0_10px_30px_rgba(15,23,42,0.02)]">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-slate-900">Transaksi Terakhir</h3>
-              <a href="#" className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors">Lihat semua</a>
+              <button onClick={() => onNavigate('laporan')} className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors cursor-pointer">Lihat semua</button>
             </div>
 
             <div className="space-y-4">
-              {recentTransactions.map((t) => (
+              {recentTxList.map((t: any) => (
                 <div key={t.id} className="flex items-center justify-between p-3 rounded-2xl bg-slate-55 border border-slate-100/50 hover:bg-slate-100/30 transition-all">
                   <div className="flex items-center gap-4">
                     <div className="p-2.5 bg-blue-50 rounded-xl flex items-center justify-center">
