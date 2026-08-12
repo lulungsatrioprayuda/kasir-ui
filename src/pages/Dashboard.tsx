@@ -43,7 +43,14 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
 
   // Calculate live notification alerts
   const lowStockItems = products.filter(p => p.stock <= p.minStock)
-  const notifications = [
+  const notifications: Array<{
+    id: string
+    title: string
+    message: string
+    time: string
+    type: 'warning' | 'info' | 'success'
+    onClick?: () => void
+  }> = [
     ...lowStockItems.map(p => ({
       id: `stock-${p.id}`,
       title: 'Peringatan Stok Menipis',
@@ -556,6 +563,7 @@ export default function Dashboard({ products, onLogout, onNavigate }: DashboardP
                     <img
                       src={p.image}
                       alt={p.name}
+                      referrerPolicy="no-referrer"
                       className="w-10 h-10 rounded-xl object-cover border border-slate-100 shadow-sm"
                       onError={(e) => {
                         (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80'

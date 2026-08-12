@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   ShoppingBag,
   LayoutDashboard,
@@ -36,13 +36,61 @@ interface ProdukProps {
 
 export default function Produk({ products, setProducts, onLogout, onNavigate }: ProdukProps) {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(products[0] || null)
-  
+
   // Search / Filter States
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('Semua')
   const [selectedStatus, setSelectedStatus] = useState('Semua')
   const [showFilters, setShowFilters] = useState(false)
-  
+
+  // Pagination States
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'Semua'>(10)
+  const [currentPageNum, setCurrentPageNum] = useState<number>(1)
+
+  // Fetch / Sync products directly from Database on Mount
+  useEffect(() => {
+    api.getProducts()
+      .then(res => {
+        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+          const mapped: Product[] = res.data.map(p => ({
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            category: p.category_name || 'Umum',
+            price: Number(p.price),
+            costPrice: Number(p.cost_price),
+            stock: p.stock,
+            unit: p.base_unit || 'Pcs',
+            minStock: p.min_stock || 5,
+            barcode: p.barcode || '-',
+            supplier: p.supplier_name || '-',
+            description: p.description || '',
+            status: p.status || 'Aktif',
+            image: p.image_url || 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80',
+            history: [],
+            units: [{ name: p.base_unit || 'Pcs', price: Number(p.price), isDefault: true, qty: 1 }]
+          }))
+          setProducts(mapped)
+          if (!selectedProduct && mapped.length > 0) {
+            setSelectedProduct(mapped[0])
+          }
+        }
+      })
+      .catch(err => console.warn('Could not fetch DB products:', err))
+  }, [])
+
+  // Keep selectedProduct in sync with updated list
+  useEffect(() => {
+    if (products.length > 0) {
+      if (!selectedProduct) {
+        setSelectedProduct(products[0])
+      } else {
+        const found = products.find(p => p.id === selectedProduct.id)
+        if (found) setSelectedProduct(found)
+      }
+    }
+  }, [products])
+
   // Checkbox state for rows
   const [selectedRowIds, setSelectedRowIds] = useState<number[]>([])
 
@@ -100,9 +148,21 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
     })
   }, [products, searchQuery, selectedCategory, selectedStatus])
 
+  // Paginated product listing
+  const totalPages = useMemo(() => {
+    if (itemsPerPage === 'Semua') return 1
+    return Math.max(1, Math.ceil(filteredProducts.length / itemsPerPage))
+  }, [filteredProducts.length, itemsPerPage])
+
+  const paginatedProducts = useMemo(() => {
+    if (itemsPerPage === 'Semua') return filteredProducts
+    const start = (currentPageNum - 1) * itemsPerPage
+    return filteredProducts.slice(start, start + itemsPerPage)
+  }, [filteredProducts, currentPageNum, itemsPerPage])
+
   // Select/Deselect row checkbox helpers
   const handleToggleRow = (id: number) => {
-    setSelectedRowIds(prev => 
+    setSelectedRowIds(prev =>
       prev.includes(id) ? prev.filter(rowId => rowId !== id) : [...prev, id]
     )
   }
@@ -155,7 +215,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
   }
 
   // Handle Add Product Submit
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!formName || !formStock) {
       triggerToast('Mohon lengkapi field wajib (Nama & Stok)!', 'info')
@@ -230,31 +290,74 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
       units: formUnits
     }
 
+    // Helper to refresh product list from DB
+    const refreshFromDb = async () => {
+      try {
+        const res = await api.getProducts()
+        if (res.success && Array.isArray(res.data)) {
+          const mapped: Product[] = res.data.map(p => ({
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            category: p.category_name || 'Umum',
+            price: Number(p.price),
+            costPrice: Number(p.cost_price),
+            stock: p.stock,
+            unit: p.base_unit || 'Pcs',
+            minStock: p.min_stock || 5,
+            barcode: p.barcode || '-',
+            supplier: p.supplier_name || '-',
+            description: p.description || '',
+            status: p.status || 'Aktif',
+            image: p.image_url || 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80',
+            history: [],
+            units: [{ name: p.base_unit || 'Pcs', price: Number(p.price), isDefault: true, qty: 1 }]
+          }))
+          setProducts(mapped)
+          return mapped
+        }
+      } catch (err) {
+        console.warn('Error refreshing from DB:', err)
+      }
+      return null
+    }
+
     // Persist to PostgreSQL backend via Hono API
-    api.createProduct({
-      name: formName,
-      sku: newProd.sku,
-      barcode: formBarcode || null,
-      base_unit: defaultUnit.name,
-      cost_price: costNum,
-      price: defaultUnit.price,
-      stock: stockNum,
-      min_stock: minStockNum,
-      description: formDescription || null
-    }).then(res => {
+    try {
+      const res = await api.createProduct({
+        name: formName,
+        sku: newProd.sku,
+        barcode: formBarcode || null,
+        category_name: formCategory,
+        image_url: formImage || null,
+        base_unit: defaultUnit.name,
+        cost_price: costNum,
+        price: defaultUnit.price,
+        stock: stockNum,
+        min_stock: minStockNum,
+        description: formDescription || null
+      })
       if (res.success && res.data) {
         newProd.id = res.data.id
       }
-    }).catch(err => console.warn('Could not persist to DB backend:', err))
+    } catch (err) {
+      console.warn('Could not persist to DB backend:', err)
+    }
 
-    setProducts([newProd, ...products])
-    setSelectedProduct(newProd)
+    const freshList = await refreshFromDb()
+    if (freshList && freshList.length > 0) {
+      const found = freshList.find(p => p.id === newProd.id) || freshList[0]
+      setSelectedProduct(found)
+    } else {
+      setProducts([newProd, ...products])
+      setSelectedProduct(newProd)
+    }
     setShowAddModal(false)
     triggerToast('Produk baru berhasil ditambahkan dan disimpan ke database!', 'success')
   }
 
   // Handle Edit Product Submit
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedProduct) return
 
@@ -337,28 +440,71 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
     }
 
     // Persist edit to PostgreSQL via Hono API
-    api.updateProduct(selectedProduct.id, {
-      name: formName,
-      sku: formSku,
-      barcode: formBarcode,
-      base_unit: defaultUnit.name,
-      cost_price: costNum,
-      price: defaultUnit.price,
-      stock: stockNum,
-      min_stock: minStockNum,
-      description: formDescription
-    }).catch(err => console.warn('Could not persist product update to backend:', err))
+    try {
+      await api.updateProduct(selectedProduct.id, {
+        name: formName,
+        sku: formSku,
+        barcode: formBarcode,
+        category_name: formCategory,
+        image_url: formImage,
+        base_unit: defaultUnit.name,
+        cost_price: costNum,
+        price: defaultUnit.price,
+        stock: stockNum,
+        min_stock: minStockNum,
+        description: formDescription
+      })
+    } catch (err) {
+      console.warn('Could not persist product update to backend:', err)
+    }
 
-    const updatedProducts = products.map(p => p.id === selectedProduct.id ? updatedProd : p)
-    setProducts(updatedProducts)
-    setSelectedProduct(updatedProd)
+    // Refresh state directly from PostgreSQL
+    try {
+      const res = await api.getProducts()
+      if (res.success && Array.isArray(res.data)) {
+        const mapped: Product[] = res.data.map(p => ({
+          id: p.id,
+          name: p.name,
+          sku: p.sku,
+          category: p.category_name || 'Umum',
+          price: Number(p.price),
+          costPrice: Number(p.cost_price),
+          stock: p.stock,
+          unit: p.base_unit || 'Pcs',
+          minStock: p.min_stock || 5,
+          barcode: p.barcode || '-',
+          supplier: p.supplier_name || '-',
+          description: p.description || '',
+          status: p.status || 'Aktif',
+          image: p.image_url || 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80',
+          history: updatedHistory,
+          units: formUnits
+        }))
+        setProducts(mapped)
+        const updatedItem = mapped.find(p => p.id === selectedProduct.id) || updatedProd
+        setSelectedProduct(updatedItem)
+      }
+    } catch (err) {
+      const updatedProducts = products.map(p => p.id === selectedProduct.id ? updatedProd : p)
+      setProducts(updatedProducts)
+      setSelectedProduct(updatedProd)
+    }
+
     setShowEditModal(false)
     triggerToast('Detail produk berhasil diperbarui!', 'success')
   }
 
   // Handle Delete Product
-  const handleDeleteSubmit = () => {
+  const handleDeleteSubmit = async () => {
     if (!selectedProduct) return
+
+    // Persist deletion to PostgreSQL via Hono API
+    try {
+      await api.deleteProduct(selectedProduct.id)
+    } catch (err) {
+      console.warn('Could not persist deletion to backend:', err)
+    }
+
     setProducts(products.filter(p => p.id !== selectedProduct.id))
     setSelectedProduct(null)
     setShowDeleteConfirm(false)
@@ -429,7 +575,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
       <main className="flex-1 flex overflow-hidden">
         {/* Left Area: Product List */}
         <div className="flex-1 flex flex-col p-8 overflow-y-auto min-w-0">
-          
+
           {/* Header */}
           <header className="flex justify-between items-start mb-8 shrink-0">
             <div className="text-left space-y-1">
@@ -448,7 +594,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                 <Plus className="w-4 h-4" />
                 Tambah Produk
               </button>
-              
+
               {/* Notification bell and profile card */}
               <div className="relative ml-2">
                 <button className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-slate-500 relative transition-all duration-200">
@@ -486,11 +632,10 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
 
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold shadow-sm transition-all duration-200 border ${
-                  showFilters
+                className={`flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold shadow-sm transition-all duration-200 border ${showFilters
                     ? 'bg-blue-50 border-blue-200 text-blue-600'
                     : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
-                }`}
+                  }`}
               >
                 <SlidersHorizontal className="w-4 h-4 text-slate-400" />
                 Filter
@@ -562,13 +707,12 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
-                  {filteredProducts.map(p => (
+                  {paginatedProducts.map(p => (
                     <tr
                       key={p.id}
                       onClick={() => setSelectedProduct(p)}
-                      className={`hover:bg-slate-50/70 transition-colors cursor-pointer ${
-                        selectedProduct?.id === p.id ? 'bg-blue-50/30' : ''
-                      }`}
+                      className={`hover:bg-slate-50/70 transition-colors cursor-pointer ${selectedProduct?.id === p.id ? 'bg-blue-50/30' : ''
+                        }`}
                     >
                       <td className="py-4 px-6 text-center" onClick={e => e.stopPropagation()}>
                         <input
@@ -581,9 +725,10 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
-                            <img 
-                              src={p.image} 
-                              alt={p.name} 
+                            <img
+                              src={p.image}
+                              alt={p.name}
+                              referrerPolicy="no-referrer"
                               className="w-full h-full object-cover"
                               onError={(e) => {
                                 (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80'
@@ -599,17 +744,15 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                       <td className="py-4 px-4 font-medium text-slate-550">{p.sku}</td>
                       <td className="py-4 px-4 font-medium text-slate-500">{p.category}</td>
                       <td className="py-4 px-4 font-bold text-slate-800">{formatPrice(p.price)}</td>
-                      <td className={`py-4 px-4 font-bold ${
-                        p.stock <= p.minStock ? 'text-red-500' : 'text-emerald-600'
-                      }`}>{p.stock}</td>
+                      <td className={`py-4 px-4 font-bold ${p.stock <= p.minStock ? 'text-red-500' : 'text-emerald-600'
+                        }`}>{p.stock}</td>
                       <td className="py-4 px-4">
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${
-                          p.status === 'Aktif'
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${p.status === 'Aktif'
                             ? 'bg-emerald-50 text-emerald-600'
                             : p.status === 'Stok Rendah'
-                            ? 'bg-amber-50 text-amber-600'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}>
+                              ? 'bg-amber-50 text-amber-600'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}>
                           {p.status}
                         </span>
                       </td>
@@ -617,11 +760,11 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                         <div className="flex items-center justify-center gap-2">
                           <button
                             onClick={() => openEditModal(p)}
-                            className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 rounded-xl shadow-sm text-slate-500 hover:bg-blue-50/25 transition-all"
+                            className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 hover:border-blue-400 hover:text-blue-600 rounded-xl shadow-sm text-slate-500 hover:bg-blue-50/25 transition-all cursor-pointer"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 hover:bg-slate-50 rounded-xl shadow-sm text-slate-450 hover:text-slate-700 transition-all">
+                          <button className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 hover:bg-slate-50 rounded-xl shadow-sm text-slate-450 hover:text-slate-700 transition-all cursor-pointer">
                             <MoreVertical className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -641,22 +784,70 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
               </table>
             </div>
 
-            {/* Pagination footer */}
-            <footer className="flex justify-between items-center py-4 px-6 border-t border-slate-100 shrink-0">
-              <span className="text-xs text-slate-400 font-semibold">
-                Menampilkan 1 - {filteredProducts.length} dari {filteredProducts.length} produk
-              </span>
-              <div className="flex items-center gap-1.5">
-                <button className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 text-slate-500" disabled>
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button className="w-9 h-9 rounded-xl bg-blue-600 text-white font-bold text-sm shadow-md shadow-blue-600/10">1</button>
-                <button className="w-9 h-9 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50">2</button>
-                <button className="w-9 h-9 rounded-xl border border-slate-200 text-slate-600 font-semibold text-sm hover:bg-slate-50">3</button>
-                <button className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500">
-                  <ChevronRightIcon className="w-4 h-4" />
-                </button>
+            {/* Flexible Pagination footer */}
+            <footer className="flex flex-wrap justify-between items-center py-4 px-6 border-t border-slate-100 shrink-0 gap-4">
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-slate-400 font-semibold">
+                  {itemsPerPage === 'Semua'
+                    ? `Menampilkan semua ${filteredProducts.length} produk`
+                    : `Menampilkan ${Math.min((currentPageNum - 1) * itemsPerPage + 1, filteredProducts.length)} - ${Math.min(currentPageNum * itemsPerPage, filteredProducts.length)} dari ${filteredProducts.length} produk`
+                  }
+                </span>
+
+                {/* Rows Per Page Selector */}
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
+                  <span>Tampilkan:</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      const val = e.target.value
+                      setItemsPerPage(val === 'Semua' ? 'Semua' : Number(val))
+                      setCurrentPageNum(1)
+                    }}
+                    className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 text-xs cursor-pointer focus:outline-none focus:border-blue-500"
+                  >
+                    <option value={5}>5 Baris</option>
+                    <option value={10}>10 Baris</option>
+                    <option value={25}>25 Baris</option>
+                    <option value={50}>50 Baris</option>
+                    <option value="Semua">Semua Data</option>
+                  </select>
+                </div>
               </div>
+
+              {/* Page navigation buttons */}
+              {itemsPerPage !== 'Semua' && totalPages > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => setCurrentPageNum(prev => Math.max(1, prev - 1))}
+                    disabled={currentPageNum === 1}
+                    className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-40 text-slate-500 cursor-pointer disabled:cursor-not-allowed transition-all"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(pNum => (
+                    <button
+                      key={pNum}
+                      onClick={() => setCurrentPageNum(pNum)}
+                      className={`w-9 h-9 rounded-xl font-bold text-sm transition-all cursor-pointer ${currentPageNum === pNum
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                          : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                    >
+                      {pNum}
+                    </button>
+                  ))}
+
+                  <button
+                    onClick={() => setCurrentPageNum(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPageNum === totalPages}
+                    className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-40 text-slate-500 cursor-pointer disabled:cursor-not-allowed transition-all"
+                  >
+                    <ChevronRightIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </footer>
           </section>
         </div>
@@ -680,25 +871,31 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
               {/* Product Profile */}
               <div className="flex gap-4 items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
                 <div className="w-20 h-20 rounded-2xl bg-white border border-slate-100 flex items-center justify-center overflow-hidden shrink-0">
-                  <img src={selectedProduct.image} alt={selectedProduct.name} className="w-4/5 h-4/5 object-contain mix-blend-multiply" />
+                  <img
+                    src={selectedProduct.image}
+                    alt={selectedProduct.name}
+                    referrerPolicy="no-referrer"
+                    className="w-4/5 h-4/5 object-contain mix-blend-multiply"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80'
+                    }}
+                  />
                 </div>
                 <div className="text-left space-y-1">
                   <h4 className="font-bold text-slate-800 text-lg leading-tight">{selectedProduct.name}</h4>
                   <div className="flex gap-2 items-center">
-                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold ${
-                      selectedProduct.status === 'Aktif'
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold ${selectedProduct.status === 'Aktif'
                         ? 'bg-emerald-50 text-emerald-600'
                         : selectedProduct.status === 'Stok Rendah'
-                        ? 'bg-amber-50 text-amber-600'
-                        : 'bg-slate-100 text-slate-500'
-                    }`}>
-                      <span className={`w-1 h-1 rounded-full ${
-                        selectedProduct.status === 'Aktif'
+                          ? 'bg-amber-50 text-amber-600'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}>
+                      <span className={`w-1 h-1 rounded-full ${selectedProduct.status === 'Aktif'
                           ? 'bg-emerald-500'
                           : selectedProduct.status === 'Stok Rendah'
-                          ? 'bg-amber-500'
-                          : 'bg-slate-400'
-                      }`} />
+                            ? 'bg-amber-500'
+                            : 'bg-slate-400'
+                        }`} />
                       {selectedProduct.status}
                     </span>
                     <span className="text-[10px] text-slate-400 font-bold">SKU: {selectedProduct.sku}</span>
@@ -737,7 +934,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                   <span>Supplier</span>
                   <span className="text-slate-800 font-semibold">{selectedProduct.supplier}</span>
                 </div>
-                
+
                 {/* List of Selling Units */}
                 <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-100">
                   <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">Unit & Harga Jual</span>
@@ -781,14 +978,13 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                   <span className="text-sm font-extrabold text-slate-850">Riwayat Stok</span>
                   <button className="text-xs font-bold text-blue-600 hover:underline">Lihat Semua</button>
                 </div>
-                
+
                 <div className="space-y-3">
                   {selectedProduct.history?.map((h, i) => (
                     <div key={i} className="flex justify-between items-center p-3 rounded-xl bg-slate-50 border border-slate-100">
                       <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
-                          h.amount > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
-                        }`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${h.amount > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
+                          }`}>
                           {h.amount > 0 ? `+${h.amount}` : h.amount}
                         </div>
                         <div className="text-left leading-tight">
@@ -845,7 +1041,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <form onSubmit={handleAddSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
@@ -1065,9 +1261,8 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                                 const calculatedPrice = Math.round(unitCost * (1 + newMargin / 100))
                                 setFormUnits(formUnits.map((item, idx) => idx === index ? { ...item, price: calculatedPrice } : item))
                               }}
-                              className={`w-full px-1 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-blue-600 font-extrabold text-xs text-center ${
-                                margin >= 20 ? 'text-emerald-600 bg-emerald-50/20' : margin >= 0 ? 'text-blue-600 bg-blue-50/20' : 'text-red-500 bg-red-50/20'
-                              }`}
+                              className={`w-full px-1 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-blue-600 font-extrabold text-xs text-center ${margin >= 20 ? 'text-emerald-600 bg-emerald-50/20' : margin >= 0 ? 'text-blue-600 bg-blue-50/20' : 'text-red-500 bg-red-50/20'
+                                }`}
                             />
                           </div>
 
@@ -1162,8 +1357,8 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
 
                     {showAddSupplierDropdown && (
                       <>
-                        <div 
-                          className="fixed inset-0 z-10" 
+                        <div
+                          className="fixed inset-0 z-10"
                           onClick={() => setShowAddSupplierDropdown(false)}
                         />
                         <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-100 rounded-2xl shadow-xl z-20 max-h-60 overflow-y-auto py-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
@@ -1186,7 +1381,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                             <Plus className="w-3.5 h-3.5" />
                             Tambah Supplier Baru
                           </button>
-                          
+
                           <div className="h-px bg-slate-100 my-1" />
 
                           <button
@@ -1208,11 +1403,10 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                                 setFormSupplier(s)
                                 setShowAddSupplierDropdown(false)
                               }}
-                              className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${
-                                formSupplier === s 
-                                  ? 'bg-blue-50 text-[#1B52FF]' 
+                              className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${formSupplier === s
+                                  ? 'bg-blue-50 text-[#1B52FF]'
                                   : 'text-slate-700 hover:bg-slate-50'
-                              }`}
+                                }`}
                             >
                               {s}
                             </button>
@@ -1278,7 +1472,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
+
             <form onSubmit={handleEditSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
@@ -1495,9 +1689,8 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                                 const calculatedPrice = Math.round(unitCost * (1 + newMargin / 100))
                                 setFormUnits(formUnits.map((item, idx) => idx === index ? { ...item, price: calculatedPrice } : item))
                               }}
-                              className={`w-full px-1 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-blue-600 font-extrabold text-xs text-center ${
-                                margin >= 20 ? 'text-emerald-600 bg-emerald-50/20' : margin >= 0 ? 'text-blue-600 bg-blue-50/20' : 'text-red-500 bg-red-50/20'
-                              }`}
+                              className={`w-full px-1 py-1.5 border border-slate-200 rounded-lg outline-none focus:border-blue-600 font-extrabold text-xs text-center ${margin >= 20 ? 'text-emerald-600 bg-emerald-50/20' : margin >= 0 ? 'text-blue-600 bg-blue-50/20' : 'text-red-500 bg-red-50/20'
+                                }`}
                             />
                           </div>
 
@@ -1589,8 +1782,8 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
 
                     {showEditSupplierDropdown && (
                       <>
-                        <div 
-                          className="fixed inset-0 z-10" 
+                        <div
+                          className="fixed inset-0 z-10"
                           onClick={() => setShowEditSupplierDropdown(false)}
                         />
                         <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-100 rounded-2xl shadow-xl z-20 max-h-60 overflow-y-auto py-1.5 animate-in fade-in slide-in-from-top-1 duration-150">
@@ -1613,7 +1806,7 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                             <Plus className="w-3.5 h-3.5" />
                             Tambah Supplier Baru
                           </button>
-                          
+
                           <div className="h-px bg-slate-100 my-1" />
 
                           <button
@@ -1635,11 +1828,10 @@ export default function Produk({ products, setProducts, onLogout, onNavigate }: 
                                 setFormSupplier(s)
                                 setShowEditSupplierDropdown(false)
                               }}
-                              className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${
-                                formSupplier === s 
-                                  ? 'bg-blue-50 text-[#1B52FF]' 
+                              className={`w-full text-left px-4 py-2 text-xs font-semibold transition-colors ${formSupplier === s
+                                  ? 'bg-blue-50 text-[#1B52FF]'
                                   : 'text-slate-700 hover:bg-slate-50'
-                              }`}
+                                }`}
                             >
                               {s}
                             </button>
@@ -1744,11 +1936,10 @@ function SidebarLink({
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all duration-200 text-left ${
-        active
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-semibold text-sm transition-all duration-200 text-left ${active
           ? 'bg-blue-50 text-blue-600 shadow-[0_2px_10px_rgba(37,99,235,0.04)]'
           : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-      }`}
+        }`}
     >
       {icon}
       {label}
