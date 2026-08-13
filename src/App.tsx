@@ -22,193 +22,6 @@ import Laporan from './pages/Laporan'
 import Pengaturan from './pages/Pengaturan'
 import type { Product } from './types'
 
-const INITIAL_PRODUCTS: Product[] = [
-  {
-    id: 1,
-    name: 'Kopi Hitam',
-    sku: 'KOP001',
-    category: 'Minuman',
-    price: 10000,
-    costPrice: 6000,
-    stock: 50,
-    unit: 'Pcs',
-    minStock: 10,
-    barcode: '8991234567890',
-    supplier: 'PT Kopi Nusantara',
-    description: 'Kopi hitam berkualitas pilihan, cocok untuk semua suasana.',
-    status: 'Aktif',
-    image: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Stok Masuk', amount: 10, date: '20 Mei 2024, 10:30', operator: 'Admin' },
-      { type: 'Penjualan', amount: -2, date: '20 Mei 2024, 09:15', operator: 'Kasir Utama' },
-      { type: 'Stok Masuk', amount: 20, date: '19 Mei 2024, 15:45', operator: 'Admin' }
-    ],
-    units: [
-      { name: 'Pcs', price: 10000, isDefault: true, qty: 1 },
-      { name: 'Pack', price: 95000, isDefault: false, qty: 10 }
-    ]
-  },
-  {
-    id: 2,
-    name: 'Teh Botol',
-    sku: 'TEH002',
-    category: 'Minuman',
-    price: 6000,
-    costPrice: 3500,
-    stock: 40,
-    unit: 'Pcs',
-    minStock: 10,
-    barcode: '8991234567891',
-    supplier: 'PT Sinar Sosro',
-    description: 'Teh melati manis dalam kemasan botol.',
-    status: 'Aktif',
-    image: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Stok Masuk', amount: 20, date: '18 Mei 2024, 11:20', operator: 'Admin' },
-      { type: 'Penjualan', amount: -5, date: '18 Mei 2024, 10:00', operator: 'Kasir Utama' }
-    ],
-    units: [
-      { name: 'Pcs', price: 6000, isDefault: true, qty: 1 },
-      { name: 'Pack', price: 65000, isDefault: false, qty: 12 }
-    ]
-  },
-  {
-    id: 3,
-    name: 'Roti Cokelat',
-    sku: 'ROTO03',
-    category: 'Makanan',
-    price: 8000,
-    costPrice: 5000,
-    stock: 25,
-    unit: 'Pcs',
-    minStock: 5,
-    barcode: '8991234567892',
-    supplier: 'Sari Roti',
-    description: 'Roti lembut dengan isi pasta cokelat premium.',
-    status: 'Aktif',
-    image: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Stok Masuk', amount: 15, date: '15 Mei 2024, 08:30', operator: 'Admin' }
-    ],
-    units: [
-      { name: 'Pcs', price: 8000, isDefault: true, qty: 1 }
-    ]
-  },
-  {
-    id: 4,
-    name: 'Indomie Goreng',
-    sku: 'IND004',
-    category: 'Makanan',
-    price: 5500,
-    costPrice: 3000,
-    stock: 35,
-    unit: 'Pcs',
-    minStock: 15,
-    barcode: '8991234567893',
-    supplier: 'PT Indofood CBP',
-    description: 'Mie instan goreng favorit keluarga Indonesia.',
-    status: 'Aktif',
-    image: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Stok Masuk', amount: 30, date: '14 Mei 2024, 13:10', operator: 'Admin' }
-    ],
-    units: [
-      { name: 'Pcs', price: 5500, isDefault: true, qty: 1 },
-      { name: 'Box', price: 210000, isDefault: false, qty: 40 }
-    ]
-  },
-  {
-    id: 5,
-    name: 'Air Mineral',
-    sku: 'AIR005',
-    category: 'Minuman',
-    price: 5000,
-    costPrice: 2500,
-    stock: 60,
-    unit: 'Pcs',
-    minStock: 10,
-    barcode: '8991234567894',
-    supplier: 'PT Aqua Golden Mississippi',
-    description: 'Air minum dalam kemasan botol 600ml.',
-    status: 'Aktif',
-    image: 'https://images.unsplash.com/photo-1608885898957-a599fb1ee4b4?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Stok Masuk', amount: 50, date: '12 Mei 2024, 09:00', operator: 'Admin' }
-    ],
-    units: [
-      { name: 'Pcs', price: 5000, isDefault: true, qty: 1 },
-      { name: 'Box', price: 110000, isDefault: false, qty: 24 }
-    ]
-  },
-  {
-    id: 6,
-    name: 'Keripik Kentang',
-    sku: 'KER006',
-    category: 'Snack',
-    price: 12000,
-    costPrice: 8000,
-    stock: 15,
-    unit: 'Pcs',
-    minStock: 20,
-    barcode: '8991234567895',
-    supplier: 'PT Indofood Fritolay',
-    description: 'Keripik kentang renyah dengan rasa asin gurih.',
-    status: 'Stok Rendah',
-    image: 'https://images.unsplash.com/photo-1558961309-dbdf717a13d9?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Penjualan', amount: -10, date: '10 Mei 2024, 14:20', operator: 'Kasir Utama' }
-    ],
-    units: [
-      { name: 'Pcs', price: 12000, isDefault: true, qty: 1 }
-    ]
-  },
-  {
-    id: 7,
-    name: 'Gula Pasir 1kg',
-    sku: 'GUL007',
-    category: 'Bahan Dapur',
-    price: 13000,
-    costPrice: 10000,
-    stock: 80,
-    unit: 'Pcs',
-    minStock: 15,
-    barcode: '8991234567896',
-    supplier: 'PT Gulaku Indonesia',
-    description: 'Gula tebu murni kemasan 1kg.',
-    status: 'Aktif',
-    image: 'https://images.unsplash.com/photo-1581781870027-04212e231e96?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Stok Masuk', amount: 80, date: '08 Mei 2024, 10:15', operator: 'Admin' }
-    ],
-    units: [
-      { name: 'Pcs', price: 13000, isDefault: true, qty: 1 }
-    ]
-  },
-  {
-    id: 8,
-    name: 'Susu UHT 250ml',
-    sku: 'SUS008',
-    category: 'Minuman',
-    price: 7000,
-    costPrice: 4500,
-    stock: 30,
-    unit: 'Pcs',
-    minStock: 10,
-    barcode: '8991234567897',
-    supplier: 'Ultra Jaya',
-    description: 'Susu cair segar UHT rasa cokelat.',
-    status: 'Aktif',
-    image: 'https://images.unsplash.com/photo-1563636619-e9143da7973b?w=200&auto=format&fit=crop&q=80',
-    history: [
-      { type: 'Stok Masuk', amount: 30, date: '05 Mei 2024, 09:30', operator: 'Admin' }
-    ],
-    units: [
-      { name: 'Pcs', price: 7000, isDefault: true, qty: 1 },
-      { name: 'Pack', price: 75000, isDefault: false, qty: 12 }
-    ]
-  }
-]
-
 type PageType = 'dashboard' | 'transaksi' | 'produk' | 'restok' | 'laporan' | 'pengaturan'
 
 export default function App() {
@@ -222,7 +35,7 @@ export default function App() {
   }
 
   const [currentPage, setCurrentPage] = useState<PageType>(getInitialPage)
-  const [products, setProducts] = useState<Product[]>(INITIAL_PRODUCTS)
+  const [products, setProducts] = useState<Product[]>([])
   const [emailInput, setEmailInput] = useState('admin@kasir.com')
   const [passwordInput, setPasswordInput] = useState('admin123')
   const [loginError, setLoginError] = useState('')
@@ -258,7 +71,7 @@ export default function App() {
     // Fetch products from Hono backend (PostgreSQL)
     api.getProducts()
       .then(res => {
-        if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+        if (res.success && Array.isArray(res.data)) {
           const mapped: Product[] = res.data.map(p => ({
             id: p.id,
             name: p.name,
@@ -274,8 +87,24 @@ export default function App() {
             description: p.description || '',
             status: p.status || 'Aktif',
             image: p.image_url || 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80',
-            history: [],
-            units: [{ name: p.base_unit || 'Pcs', price: Number(p.price), isDefault: true, qty: 1 }]
+            history: Array.isArray(p.history) ? p.history.map((h: any) => ({
+              type: h.type,
+              amount: Number(h.amount),
+              date: new Date(h.created_at || new Date()).toLocaleString('id-ID', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              }),
+              operator: h.operator_name || 'Admin'
+            })) : [],
+            units: Array.isArray(p.units) && p.units.length > 0 ? p.units.map((u: any) => ({
+              name: u.name,
+              price: Number(u.price),
+              isDefault: u.is_default || false,
+              qty: Number(u.qty) || 1
+            })) : [{ name: p.base_unit || 'Pcs', price: Number(p.price), isDefault: true, qty: 1 }]
           }))
           setProducts(mapped)
         }

@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { api } from '../api/client'
 import {
   ShoppingBag,
   LayoutDashboard,
@@ -44,6 +45,41 @@ export default function Restok({ products, setProducts, onLogout, onNavigate }: 
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('Semua')
   const [selectedStockStatus, setSelectedStockStatus] = useState<'Semua' | 'Kritis' | 'Cukup'>('Semua')
+
+  // Notifications Popover State
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false)
+
+  // Calculate live notification alerts
+  const lowStockItems = products.filter(p => p.stock <= p.minStock)
+  const notifications: Array<{
+    id: string
+    title: string
+    message: string
+    time: string
+    type: 'warning' | 'info' | 'success'
+  }> = [
+    ...lowStockItems.map(p => ({
+      id: `stock-${p.id}`,
+      title: 'Peringatan Stok Menipis',
+      message: `${p.name} tersisa ${p.stock} ${p.unit} (Batas minimal: ${p.minStock})`,
+      time: 'Baru saja',
+      type: 'warning' as const
+    })),
+    {
+      id: 'db-status',
+      title: 'Database Terkoneksi',
+      message: 'PostgreSQL & Hono Backend terhubung aktif',
+      time: 'Aktif',
+      type: 'info' as const
+    },
+    {
+      id: 'trx-alert',
+      title: 'Sistem POS Siap',
+      message: 'Semua menu terhubung langsung ke database',
+      time: 'Hari Ini',
+      type: 'success' as const
+    }
+  ]
   
   // Restock modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
@@ -152,7 +188,6 @@ export default function Restok({ products, setProducts, onLogout, onNavigate }: 
     
     setShowRestockModal(true)
   }
-
   const handleSaveRestock = () => {
     if (!selectedProduct) return
     const qty = parseInt(restockQty)
@@ -167,58 +202,74 @@ export default function Restok({ products, setProducts, onLogout, onNavigate }: 
       return
     }
 
-    const dateStr = new Date().toLocaleString('id-ID', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+    const restockData = {
+      amount: qty,
+      cost_price: cost,
+      base_unit: restockUnit,
+      min_stock: parseInt(restockMinStock) || 5,
+      supplier: restockSupplier,
+      location: restockLocation,
+      expired_date: restockExpired || null,
+      units: restockUnits.map((u, idx) => ({
+        name: u.name,
+        qty: u.qty,
+        price: u.price,
+        isDefault: idx === 0,
+        discount: u.discount
+      }))
+    }
 
-    // Update global state
-    setProducts(prevProducts => {
-      return prevProducts.map(p => {
-        if (p.id === selectedProduct.id) {
-          const newStock = p.stock + qty
-          const minStk = parseInt(restockMinStock) || 0
-          const newStatus = newStock === 0 ? 'Nonaktif' : newStock <= minStk ? 'Stok Rendah' : 'Aktif'
-          const newHistory: ProductHistory = {
-            type: 'Stok Masuk',
-            amount: qty,
-            date: dateStr,
-            operator: 'Admin'
-          }
-          const basePrice = restockUnits.find(u => u.qty === 1)?.price || restockUnits[0]?.price || p.price
-          
-          return {
-            ...p,
-            stock: newStock,
-            costPrice: cost,
-            unit: restockUnit,
-            minStock: minStk,
-            supplier: restockSupplier,
-            location: restockLocation,
-            expired: restockExpired,
-            status: newStatus,
-            price: basePrice,
-            units: restockUnits.map((u, idx) => ({
+    api.restockProduct(selectedProduct.id, restockData)
+      .then(res => {
+        if (res.success && res.data) {
+          const p = res.data
+          const mappedProduct: Product = {
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            category: p.category_name || 'Umum',
+            price: Number(p.price),
+            costPrice: Number(p.cost_price),
+            stock: p.stock,
+            unit: p.base_unit || 'Pcs',
+            minStock: p.min_stock || 5,
+            barcode: p.barcode || '-',
+            supplier: p.supplier_name || '-',
+            description: p.description || '',
+            status: p.status || 'Aktif',
+            image: p.image_url || 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=200&auto=format&fit=crop&q=80',
+            history: Array.isArray(p.history) ? p.history.map((h: any) => ({
+              type: h.type,
+              amount: Number(h.amount),
+              date: new Date(h.created_at || new Date()).toLocaleString('id-ID', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              }),
+              operator: h.operator_name || 'Admin'
+            })) : [],
+            units: Array.isArray(p.units) && p.units.length > 0 ? p.units.map((u: any) => ({
               name: u.name,
-              qty: u.qty,
-              price: u.price,
-              isDefault: idx === 0,
-              discount: u.discount
-            })),
-            history: qty > 0 ? [newHistory, ...p.history] : p.history
+              price: Number(u.price),
+              isDefault: u.is_default || false,
+              qty: Number(u.qty) || 1
+            })) : [{ name: p.base_unit || 'Pcs', price: Number(p.price), isDefault: true, qty: 1 }]
           }
+
+          setProducts(prevProducts => prevProducts.map(prod => prod.id === p.id ? mappedProduct : prod))
+          triggerToast(`Berhasil memperbarui stok ${mappedProduct.name}`, 'success')
+          setShowRestockModal(false)
+        } else {
+          triggerToast('Gagal memproses restok', 'error')
         }
-        return p
       })
-    })
-
-    triggerToast(`Berhasil memperbarui stok ${selectedProduct.name}`, 'success')
-    setShowRestockModal(false)
+      .catch(err => {
+        console.error('Restock API error:', err)
+        triggerToast('Gagal memproses restok ke server', 'error')
+      })
   }
-
   return (
     <div className="flex min-h-screen bg-[#F8FAFC] text-slate-800 font-sans">
       {/* Sidebar */}
@@ -289,9 +340,54 @@ export default function Restok({ products, setProducts, onLogout, onNavigate }: 
               <Calendar className="w-4 h-4 text-slate-400" />
               Hari Ini
             </button>
-            <button className="relative p-2.5 bg-white border border-slate-200 rounded-xl text-slate-505 shadow-sm">
-              <Bell className="w-5 h-5" />
-            </button>
+            {/* Interactive Notification Bell Popover */}
+            <div className="relative">
+              <button 
+                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                className="relative p-2.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-slate-650 hover:text-slate-900 shadow-sm transition-all duration-200 cursor-pointer"
+              >
+                <Bell className="w-5 h-5 text-slate-700" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-blue-600 border-2 border-white rounded-full text-[10px] font-bold text-white flex items-center justify-center shadow-sm animate-pulse">
+                    {notifications.length}
+                  </span>
+                )}
+              </button>
+
+              {isNotificationsOpen && (
+                <div className="absolute right-0 mt-2 w-80 bg-white border border-slate-100 rounded-2xl shadow-xl py-3 z-50 text-left">
+                  <div className="flex items-center justify-between px-4 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-slate-900 text-sm">Notifikasi</h4>
+                      <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold">
+                        {notifications.length} Baru
+                      </span>
+                    </div>
+                    <button 
+                      onClick={() => setIsNotificationsOpen(false)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600 font-semibold"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-50">
+                    {notifications.map((n) => (
+                      <div 
+                        key={n.id}
+                        className="p-3.5 hover:bg-slate-50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <p className={`font-bold text-xs ${n.type === 'warning' ? 'text-amber-600' : 'text-slate-900'}`}>{n.title}</p>
+                          <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">{n.time}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1 leading-snug">{n.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

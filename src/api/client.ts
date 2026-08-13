@@ -32,6 +32,7 @@ export const api = {
   getProductByBarcode: (barcode: string) => fetchApi<{ success: boolean; data: any }>(`/api/products/barcode/${barcode}`),
   createProduct: (data: any) => fetchApi<{ success: boolean; data: any }>('/api/products', { method: 'POST', body: JSON.stringify(data) }),
   updateProduct: (id: number | string, data: any) => fetchApi<{ success: boolean; data: any }>(`/api/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  restockProduct: (id: number | string, data: any) => fetchApi<{ success: boolean; data: any }>(`/api/products/${id}/restock`, { method: 'POST', body: JSON.stringify(data) }),
   deleteProduct: (id: number | string) => fetchApi<{ success: boolean; message: string }>(`/api/products/${id}`, { method: 'DELETE' }),
 
   // Transactions
