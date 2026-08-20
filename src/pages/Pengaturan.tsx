@@ -807,7 +807,7 @@ export default function Pengaturan({ products, onLogout, onNavigate }: Pengatura
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Pengembang</span>
-                    <span className="text-slate-800">Google DeepMind Team</span>
+                    <span className="text-slate-800">Lulung Satrio Prayuda</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Update Terakhir</span>
