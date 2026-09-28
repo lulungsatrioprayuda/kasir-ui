@@ -16,7 +16,7 @@ import {
   Calendar,
   AlertTriangle
 } from 'lucide-react'
-import type { Product, ProductHistory } from '../types'
+import type { Product } from '../types'
 
 interface RestokProps {
   products: Product[]
